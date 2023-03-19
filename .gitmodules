@@ -1,0 +1,3 @@
+[submodule "PyTorch_YOLOv4"]
+	path = PyTorch_YOLOv4
+	url = C:\\ML_Workspace\\YOLO_V4\\PyTorch_YOLOv4
