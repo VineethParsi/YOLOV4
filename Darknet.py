@@ -32,7 +32,7 @@ def modules(blocks):
                 padding=block["pad"],
             )
 
-############################ write activation type code here #########################
+            ############################ write activation type code here #########################
 
             activation = torch.nn.Mish()
             batchNorm = torch.nn.BatchNorm2d(num_features=output_filter)
@@ -107,5 +107,83 @@ def parse_cfg(cfg):
             block[key] = val
     blocks.append(block)
     return blocks
-def forwardpass(modules_list):
 
+
+def x_trans(x):
+    return torch.nn.Sigmoid(x) + cell_x
+
+
+def y_trans(x):
+    return torch.nn.Sigmoid(x) + cell_x
+
+
+def h_trans(x):
+    return anchor_box_height * (e ^ x)
+
+
+def w_trans(x):
+    return anchor_box_height * (e ^ x)
+
+
+def c_trans(x):
+    return argmax(x)  # write argmax function
+
+
+def detections_func(features, anchors, classes, input_len, input_wid):
+
+    boxes_array = torch.clone(features)
+    boxes_array = boxes_array.view(-1, 85)
+    boxes_array[:, 0] = boxes_array[:, 0].apply_(x_trans)
+    boxes_array[:, 1] = boxes_array[:, 1].apply_(y_trans)
+    boxes_array[:, 2] = boxes_array[:, 2].apply_(h_trans)
+    boxes_array[:, 3] = boxes_array[:, 3].apply_(w_trans)
+    boxes_array[:, 4] = boxes_array[:, 4:].apply_(c_trans)
+    return boxes_array
+
+
+def forwardpass(modules_list, blocks, x):
+    outputs = []
+    detections = []
+
+    for i, module in enumerate(modules_list):
+
+        block = blocks[i]
+
+        if block["type"] == "convolution":
+            x = module.forward(x)
+            outputs.append(x)
+        elif block["type"] == "shortcut":
+            negativelayerdist = int(blocks[i]["from"])
+            activation = int(blocks[i]["activation"])
+            x = x + outputs[i + negativelayerdist]
+            ################################################## write code for activation function##############################################
+            x = torch.nn.Mish(x)
+            outputs.append(x)
+
+        elif block["type"] == "route":
+            layers = block["layers"].strip().split(",")
+            layers = [int(i) for i in layers]
+            x = layers[0]
+            for l in range(1, len(layers)):
+                if l < 0:
+                    layerindex = i + l
+                else:
+                    layerindex = l
+                x = torch.concat((x, outputs[layerindex]), dim=2)
+
+            outputs[i] = x
+
+        elif block["type"] == "maxpool":
+            x = module(x)
+            outputs[i] = x
+
+        elif block["type"] == "upsample":
+            x = module(x)
+            outputs[i] = x
+
+        elif block["type"] == "yolo":
+            anchors = module.anchors
+            classes = block["classes"]
+            image_input_len = 3                        #######################give image input length here
+            image_input_wid = 3                        #######################give image input width here
+            detections.append(detections_func(x,anchors, classes=classes, input_len=))
