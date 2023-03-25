@@ -1,4 +1,6 @@
 import torch
+import math
+from collections import OrderedDict
 
 
 class EmptyModule(torch.nn.Module):
@@ -37,11 +39,11 @@ def modules(blocks):
             activation = torch.nn.Mish()
             batchNorm = torch.nn.BatchNorm2d(num_features=output_filter)
             output_filters[i] = output_filter
-            OrderedDict = OrderedDict()
-            OrderedDict["conv2d"] = conv2d
-            OrderedDict["activation"] = activation
-            OrderedDict["batchNorm"] = batchNorm
-            modules.append(torch.nn.sequential(OrderedDict))
+            OrderedDic = OrderedDict()
+            OrderedDic["conv2d"] = conv2d
+            OrderedDic["activation"] = activation
+            OrderedDic["batchNorm"] = batchNorm
+            modules.append(torch.nn.sequential(OrderedDic))
             prev_filters = output_filter
 
         elif block[type] == "route":  #
@@ -110,26 +112,30 @@ def parse_cfg(cfg):
 
 
 def x_trans(x):
-    return torch.nn.Sigmoid(x) + cell_x
+    return torch.nn.Sigmoid(x)
 
 
 def y_trans(x):
-    return torch.nn.Sigmoid(x) + cell_x
+    return torch.nn.Sigmoid(x)
 
 
 def h_trans(x):
-    return anchor_box_height * (e ^ x)
+    return math.exp(x)
 
 
 def w_trans(x):
-    return anchor_box_height * (e ^ x)
+    return math.exp(x)
 
 
 def c_trans(x):
-    return argmax(x)  # write argmax function
+    return (torch.argmax(x)).item()  # write argmax function
 
 
 def detections_func(features, anchors, classes, input_len, input_wid):
+    n_rows = features.size()[0]
+    n_columns = features.size()[1]
+    cell_width_pixels = input_len / n_columns
+    cell_height_pixels = input_wid / n_rows
 
     boxes_array = torch.clone(features)
     boxes_array = boxes_array.view(-1, 85)
@@ -137,7 +143,20 @@ def detections_func(features, anchors, classes, input_len, input_wid):
     boxes_array[:, 1] = boxes_array[:, 1].apply_(y_trans)
     boxes_array[:, 2] = boxes_array[:, 2].apply_(h_trans)
     boxes_array[:, 3] = boxes_array[:, 3].apply_(w_trans)
-    boxes_array[:, 4] = boxes_array[:, 4:].apply_(c_trans)
+    boxes_array[:, 5] = boxes_array[:, 5:].apply_(c_trans)
+
+    for i in range(boxes_array.size()[0]):
+
+        anchor_no = (i + 1) % 3
+        anchor_no += 1
+
+        row = (((i + 1) / 3) - 1) / n_columns
+        col = (((i + 1) / 3) - 1) % n_columns
+        boxes_array[i][0] += (col) * cell_width_pixels
+        boxes_array[i][1] += (row) * cell_height_pixels
+        boxes_array[i][2] *= anchors[anchor_no][0]
+        boxes_array[i][3] *= anchors[anchor_no][1]
+
     return boxes_array
 
 
@@ -152,9 +171,11 @@ def forwardpass(modules_list, blocks, x):
         if block["type"] == "convolution":
             x = module.forward(x)
             outputs.append(x)
+
         elif block["type"] == "shortcut":
+
             negativelayerdist = int(blocks[i]["from"])
-            activation = int(blocks[i]["activation"])
+            # activation = int(blocks[i]["activation"])
             x = x + outputs[i + negativelayerdist]
             ################################################## write code for activation function##############################################
             x = torch.nn.Mish(x)
@@ -184,6 +205,14 @@ def forwardpass(modules_list, blocks, x):
         elif block["type"] == "yolo":
             anchors = module.anchors
             classes = block["classes"]
-            image_input_len = 3                        #######################give image input length here
-            image_input_wid = 3                        #######################give image input width here
-            detections.append(detections_func(x,anchors, classes=classes, input_len=))
+            image_input_len = 608  #######################give image input length here
+            image_input_wid = 608  #######################give image input width here
+            detections.append(
+                detections_func(
+                    x,
+                    anchors,
+                    classes=classes,
+                    input_len=image_input_len,
+                    input_wid=image_input_wid,
+                )[:, 0:6]
+            )
